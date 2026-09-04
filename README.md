@@ -35,15 +35,15 @@ Push sur main
 
 ## Stack technique
 
-| Composant       | Technologie                        |
-|-----------------|------------------------------------|
-| Application     | Spring Boot 3.3.0                  |
-| Build           | Maven 3.9                          |
-| Conteneurisation| Docker (multi-stage build)         |
-| CI/CD           | GitHub Actions                     |
-| Registry        | Docker Hub                         |
-| Serveur cible   | Oracle Cloud Free Tier (Ubuntu)    |
-| Sécurité        | SSH ed25519 (clés privée/publique) |
+| Composant        | Technologie                        |
+|------------------|------------------------------------|
+| Application      | Spring Boot 3.3.0                  |
+| Build            | Maven 3.9                          |
+| Conteneurisation | Docker (multi-stage build)         |
+| CI/CD            | GitHub Actions                     |
+| Registry         | Docker Hub                         |
+| Serveur cible    | Oracle Cloud Free Tier (Ubuntu)    |
+| Sécurité         | SSH ed25519 (clés privée/publique) |
 
 ---
 
@@ -65,19 +65,9 @@ afric-devops-pipeline/
 
 ---
 
-## Configuration des Secrets GitHub
+## Étape 1 — Générer les clés SSH
 
-Aller dans : **GitHub repo → Settings → Secrets and variables → Actions → New repository secret**
-
-| Nom du Secret          | Description                          | Comment l'obtenir                                                   |
-|------------------------|--------------------------------------|---------------------------------------------------------------------|
-| `DOCKER_HUB_USERNAME`  | Username Docker Hub                  | Ton compte hub.docker.com                                           |
-| `DOCKER_HUB_TOKEN`     | Token Docker Hub                     | hub.docker.com → Account Settings → Security → New Access Token     |
-| `SSH_PRIVATE_KEY`      | Clé privée SSH ed25519 complète      | Générée avec ssh-keygen (voir ci-dessous)                           |
-| `VPS_HOST`             | IP publique du VPS                   | Dashboard Oracle Cloud                                              |
-| `VPS_USER`             | Utilisateur SSH                      | `ubuntu` (par défaut Oracle Cloud)                                  |
-
-### Générer les clés SSH
+Sur ta machine ou dans le Codespace, exécute :
 
 ```bash
 ssh-keygen -t ed25519 -C "github-actions-afric" -f ~/.ssh/afric_deploy -N ""
@@ -87,45 +77,96 @@ Cela génère deux fichiers :
 - `~/.ssh/afric_deploy` → **clé privée** → valeur du secret `SSH_PRIVATE_KEY`
 - `~/.ssh/afric_deploy.pub` → **clé publique** → à coller sur le VPS
 
-Afficher la clé privée (à copier dans GitHub Secrets) :
+Afficher la clé privée :
 ```bash
 cat ~/.ssh/afric_deploy
 ```
 
-Afficher la clé publique (à coller sur le VPS) :
+Afficher la clé publique :
 ```bash
 cat ~/.ssh/afric_deploy.pub
 ```
 
 ---
 
-## Prérequis sur le serveur cible (VPS Oracle Cloud)
+## Étape 2 — Créer un token Docker Hub
 
-Se connecter au VPS, puis exécuter :
+1. Va sur **https://hub.docker.com**
+2. Connecte-toi → clique sur ton avatar → **Account Settings**
+3. **Personal access tokens** → **Generate new token**
+4. Token name : `github-actions-afric`
+5. Permissions : **Read & Write**
+6. Clique **Generate** et copie le token immédiatement
 
+---
+
+## Étape 3 — Configurer les Secrets GitHub
+
+Aller dans : **GitHub repo → Settings → Secrets and variables → Actions → New repository secret**
+
+| Nom du Secret         | Description                     | Valeur                                         |
+|-----------------------|---------------------------------|------------------------------------------------|
+| `DOCKER_HUB_USERNAME` | Username Docker Hub             | Ton username hub.docker.com                    |
+| `DOCKER_HUB_TOKEN`    | Token Docker Hub                | Token généré à l'étape 2                       |
+| `SSH_PRIVATE_KEY`     | Clé privée SSH ed25519 complète | Contenu complet de `~/.ssh/afric_deploy`       |
+| `VPS_HOST`            | IP publique du VPS              | IP fournie par Oracle Cloud                    |
+| `VPS_USER`            | Utilisateur SSH                 | `ubuntu` (par défaut Oracle Cloud)             |
+
+> ⚠️ Pour `SSH_PRIVATE_KEY`, copier le contenu **entier** incluant :
+> ```
+> -----BEGIN OPENSSH PRIVATE KEY-----
+> ...
+> -----END OPENSSH PRIVATE KEY-----
+> ```
+
+---
+
+## Étape 4 — Préparer le serveur VPS (Oracle Cloud)
+
+Se connecter au VPS via SSH, puis exécuter ces commandes :
+
+### 4.1 Installer Docker
 ```bash
-# 1. Installer Docker
 curl -fsSL https://get.docker.com | sh
+```
 
-# 2. Ajouter l'utilisateur ubuntu au groupe docker
+### 4.2 Ajouter l'utilisateur ubuntu au groupe docker
+```bash
 usermod -aG docker ubuntu
+```
 
-# 3. Créer le dossier SSH pour ubuntu
+### 4.3 Autoriser la clé SSH de GitHub Actions
+```bash
 mkdir -p /home/ubuntu/.ssh
 chmod 700 /home/ubuntu/.ssh
-
-# 4. Ajouter la clé publique
 echo "COLLER_ICI_LA_CLE_PUBLIQUE" >> /home/ubuntu/.ssh/authorized_keys
 chmod 600 /home/ubuntu/.ssh/authorized_keys
 chown -R ubuntu:ubuntu /home/ubuntu/.ssh
+```
 
-# 5. Ouvrir le port 8080
+> Remplacer `COLLER_ICI_LA_CLE_PUBLIQUE` par le contenu de `~/.ssh/afric_deploy.pub`
+
+### 4.4 Ouvrir les ports nécessaires
+```bash
+ufw allow OpenSSH
 ufw allow 8080
+ufw enable
+```
+
+### 4.5 Vérifier que Docker fonctionne
+```bash
+docker --version
+docker run hello-world
+```
+
+### 4.6 Tester la connexion SSH depuis le Codespace
+```bash
+ssh -i ~/.ssh/afric_deploy ubuntu@IP_DU_VPS
 ```
 
 ---
 
-## Déclencher et suivre le pipeline
+## Étape 5 — Déclencher et suivre le pipeline
 
 Tout push sur la branche `main` déclenche automatiquement le pipeline.
 
@@ -170,5 +211,7 @@ docker restart afric-hello-devops
 
 # Voir les images téléchargées
 docker images
-```
 
+# Supprimer les anciennes images
+docker image prune -f
+```
