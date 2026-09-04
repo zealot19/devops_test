@@ -171,3 +171,4 @@ docker restart afric-hello-devops
 # Voir les images téléchargées
 docker images
 ```
+
